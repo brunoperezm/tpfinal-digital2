@@ -274,7 +274,6 @@ CONV_7SEG
 		RETLW	    0x5E 		; obtiene el valor 7 segmentos del D
 		RETLW	    0x79 		; obtiene el valor 7 segmentos del E
 		RETLW	    0x71 		; obtiene el valor 7 segmentos del F
-		RETLW	    0x01 		; obtiene el valor 7 segmentos del -
 	
 GUARDARENBUFFER
 	    MOVLW	0x31			; | 
@@ -308,7 +307,7 @@ LOOP
 INT_T0
 		MOVF	FSR,W
 		MOVWF	FSR_AUX	    		;GUARDO LO QUE TRAIA FSR PARA NO PERDERLO
-		MOVLW	0x34
+		MOVLW	0x35
 		SUBWF	DIGI1,W	    		;VERIFICO SI YA MOSTRE LOS 4 VALORES, LA PRIMERA VEZ QUE ENTRA, ENTRO CON UN 34 
 		BTFSS	STATUS,Z
 		GOTO	NO_TODAVIA		
@@ -347,8 +346,7 @@ FININT_TMR0
 
 
 DESBLOQUEAR
-	MOVLW		0x10
-	CALL		CONV_7SEG
+	MOVLW		0x40 ; '-' en display
 	MOVWF		0x31
 	MOVWF		0x32
 	MOVWF		0x33

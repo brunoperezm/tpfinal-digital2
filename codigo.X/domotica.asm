@@ -26,8 +26,9 @@ ENDC
 SCAN_OK			EQU 0x1
 SCAN_FAIL		EQU 0x0
 ; ---- DOMOTICA_STATUS Bits
-DOM_TECLADO		EQU 0x0
+DOM_TECLADO				EQU 0x0
 DOM_DESBLOQUEADO		EQU 0x1
+DOM_ESPERANDO_INPUT		EQU 0x2
 ;----------------------------------------------------
 ; 					MACROS
 ;----------------------------------------------------
@@ -47,7 +48,7 @@ ENDM
 
 CARGAR_TIMER MACRO
 	BANKSEL TMR0
-    MOVLW	0x64
+    MOVLW	0x00			; Deberia ser 0x64 pero a efectos de simulacion va como 00
     MOVWF	TMR0 			; Se carga el valor deseado en el TMR0
     NOP                  	; T[s]= ((256-TMR0)*prescaler+2)*Ty 
     NOP 				 	; Preescaler = 1:32
@@ -86,7 +87,7 @@ INICIO
 		BCF	OPTION_REG,NOT_RBPU
 		MOVLW	B'11010000'  		; 1.- TMR0 sea controlado por el oscilador
 		ANDWF	OPTION_REG,W 		; 2.- El Prescaler sea asignado al temporizador TMR0
-		IORLW	B'00000100' 		; 3.- Se elige una divisi?n de frecuencia de 1:32
+		IORLW	B'00000111' 		; 3.- Se elige una divisi?n de frecuencia de 1:32 Deberia ser 00000100
 		MOVWF	OPTION_REG   		; Se carga la configuraci?n final.
 		BCF	STATUS,RP0
 		CLRF	PORTB			
@@ -100,6 +101,7 @@ INICIO
 		;  Inicializacion de DOMOTICA_STATUS constantes
 		BCF	DOMOTICA_STATUS,DOM_TECLADO
 		BCF	DOMOTICA_STATUS,DOM_DESBLOQUEADO
+		BSF	DOMOTICA_STATUS, DOM_ESPERANDO_INPUT
 ;------------------------------------------------------------------------------		
 		CLRF	PORTA
 		CARGAR_TIMER
@@ -126,7 +128,6 @@ INTERRUPCION
     ;---------------------------------------------------
     ; Rutina de TECLADO
 TECLADO
-		BSF		DOMOTICA_STATUS, DOM_DESBLOQUEADO
 		MOVLW	D'50'			; aca verifica que la tecla efectivamente este presionada
 		MOVWF	BOUNCE_COUNTER	; verfico que 50 veces haya sido presionada
 L1
@@ -155,6 +156,58 @@ L3
 		MOVLW	B'11110000'
 		ANDWF	PORTB,F
 		BCF	DOMOTICA_STATUS,DOM_TECLADO
+		MOVF 	0x34, F
+		
+		; ------------ Seteo DOM_ESPERANDO_INPUT -----------------
+		BTFSS	STATUS,Z			; Si el ultimo bufer es 0x00
+		GOTO	VALIDAR_CODIGO		; Valida el codigo y pone DOM_ESPERANDO_INPUT = false				
+		
+		BSF 	DOMOTICA_STATUS, DOM_ESPERANDO_INPUT	; DOM_ESPERANDO_INPUT es true
+		GOTO 	FIN_TECLADO
+		
+		; ----------- Chequeo Num de Bloqueo --------------------
+VALIDAR_CODIGO
+		BCF		DOMOTICA_STATUS, DOM_ESPERANDO_INPUT	; DOM_ESPERANDO_INPUT es false
+		MOVLW	0x06 ; '1'	
+		SUBWF	0x31
+
+		BTFSS	STATUS,Z
+		GOTO 	INCORRECTO
+
+		MOVLW	0x67 ; '9'	
+		SUBWF	0x32
+
+		BTFSS	STATUS,Z
+		GOTO 	INCORRECTO
+
+		MOVLW	0x67 ; '9'	
+		SUBWF	0x33
+
+		BTFSS	STATUS,Z
+		GOTO 	INCORRECTO
+
+		MOVLW	0x67 ; '6'	
+		SUBWF	0x33
+
+		BTFSS	STATUS,Z
+		GOTO 	INCORRECTO
+
+		GOTO CORRECTO
+
+INCORRECTO
+		CLRF 	0x31
+		CLRF 	0x32
+		CLRF 	0x33
+		CLRF 	0x34
+		BSF 	DOMOTICA_STATUS, DOM_ESPERANDO_INPUT
+		GOTO	FIN_TECLADO
+CORRECTO
+		BTFSS	DOMOTICA_STATUS, DOM_DESBLOQUEADO
+		BSF		DOMOTICA_STATUS, DOM_DESBLOQUEADO
+		BCF		DOMOTICA_STATUS, DOM_DESBLOQUEADO
+		GOTO	FIN_TECLADO
+FIN_TECLADO
+		; ----------- Borro flags de interrupcion ---------------
 		BCF	INTCON,RBIF		; Borra el flag que pidi la Interrupcin
 		BSF	INTCON,RBIE		; Al finalizar activo interrupcion por PORTB
 		RETURN
@@ -260,6 +313,8 @@ INT_T0
 		MOVWF	PORTC	    		;HABILITO EL PRIMER DISPLAY
 		GOTO	MOSTRAR
 NO_TODAVIA	
+		MOVLW 	0x00
+		MOVWF	PORTA
 		INCF	DIGI1,F	    		;INCREMENTO DIGI1 PARA QUE VAYA A BUSCAR EN LA SIGUIENTE POS DEL BUFFER
 		BCF	STATUS,C    		;CARRY EN 0 PARA ROTAR
 		RLF	PORTC,F	    		;DESPLAZO EL 1 
@@ -275,9 +330,9 @@ MOSTRAR
 R_PORTB		
 		MOVLW	B'11110000'
 		ANDWF	PORTB,F
-		BSF	DOMOTICA_STATUS,DOM_TECLADO
-		BCF	INTCON,RBIE				; Desahabilito interrupciones 
-		BCF	INTCON,RBIF				; por puerto B
+		BSF		DOMOTICA_STATUS,DOM_TECLADO
+		BCF		INTCON,RBIE				; Desahabilito interrupciones 
+		BCF		INTCON,RBIF				; por puerto B
 		GOTO	FININT
 FININT_TMR0
 	CARGAR_TIMER

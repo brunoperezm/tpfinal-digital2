@@ -1,7 +1,9 @@
 		LIST		P=16F887
 		INCLUDE		<p16f887.inc>
 
-		__CONFIG _CONFIG1, _FOSC_INTRC_NOCLKOUT & _WDTE_OFF & _MCLRE_ON & _LVP_OFF
+		__CONFIG    _CONFIG1, _LVP_OFF & _FCMEN_ON & _IESO_OFF & _BOR_OFF &_CPD_OFF & _CP_OFF & _MCLRE_ON & _PWRTE_ON & _WDT_OFF
+		__CONFIG    _INTRC_OSC_NOCLKOUT & _CONFIG2, _WRT_OFF & _BOR21V
+
 
 ;---------------------VARIABLES A UTILIZAR-------------------------------
 CBLOCK	0x20
@@ -29,6 +31,7 @@ SCAN_FAIL		EQU 0x0
 DOM_TECLADO				EQU 0x0
 DOM_DESBLOQUEADO		EQU 0x1
 DOM_ESPERANDO_INPUT		EQU 0x2
+DOM_LUZ_ALTA			EQU 0x3
 ;----------------------------------------------------
 ; 					MACROS
 ;----------------------------------------------------
@@ -55,6 +58,18 @@ CARGAR_TIMER MACRO
     BSF	    INTCON,T0IE 	; Interrupci?n por desbordamiento TM0 habilitado
 ENDM
 
+CONFADC   	MACRO
+    BANKSEL	ADCON1
+    BSF		ADCON1,ADFM	    ; Resultado justificado a la derecha
+    BCF		ADCON1,VCFG0	; Seteo Vref+ como fuente interna (5v)
+    BCF		ADCON1,VCFG1	; Seteo Vref- como fuente interna (masa)
+    BSF		PIE1,ADIE	; Habilito las int por Receptor ADC
+    BSF		INTCON,PEIE	; Habilito las int por Periféricos
+    BANKSEL	ADCON0
+    MOVLW	b'10010101' ; Fosc/32, Channel5 (RE0), DONE, ADC ON
+    MOVWF	ADCON0
+    ENDM
+
 
 ;---------------------INICIALIZACIÓN-----------------------------------    
     
@@ -74,6 +89,7 @@ INICIO
 		;--------------------------------------------
 		BANKSEL	ANSELH
 		CLRF	ANSEL
+		BSF 	ANSEL, ANS5		; Channel 5 como analogico
 		CLRF	ANSELH			;PINES COMO DIGITALES
 		MOVLW	B'11110000'		; <b0:b3>OUT;<b4:b7>IN
 		MOVWF	TRISB			;CONFIGURO EL PUERTO CON SUS RESPECTIVAS ENTRADAS Y SALIDAS
@@ -84,12 +100,14 @@ INICIO
 		MOVWF	IOCB			;INDEPENDIENTES
 		CLRF	TRISA			;CONFIGURO COMO SALIDAS PARA DISPLAYS
 		CLRF	TRISC
-		BCF	OPTION_REG,NOT_RBPU
+		BCF		TRISD,	TRISD0
+		BSF 	TRISE,	TRISE0	; Configuro RE0 como entrada
+		BCF		OPTION_REG,NOT_RBPU
 		MOVLW	B'11010000'  		; 1.- TMR0 sea controlado por el oscilador
 		ANDWF	OPTION_REG,W 		; 2.- El Prescaler sea asignado al temporizador TMR0
 		IORLW	B'00000111' 		; 3.- Se elige una divisi?n de frecuencia de 1:32 Deberia ser 00000100
 		MOVWF	OPTION_REG   		; Se carga la configuraci?n final.
-		BCF	STATUS,RP0
+		BCF		STATUS,RP0
 		CLRF	PORTB			
 		MOVF	PORTB,F
 		MOVLW	B'10001000'		;CONFIGURO LAS INTERRUPCIONES POR PUERTO B
@@ -104,13 +122,22 @@ INICIO
 		BSF	DOMOTICA_STATUS, DOM_ESPERANDO_INPUT
 ;------------------------------------------------------------------------------		
 		CLRF	PORTA
-		CARGAR_TIMER
+		CONFADC
+		CARGAR_TIMER		
 BUCLE		
-		BTFSC	DOMOTICA_STATUS,DOM_TECLADO		;ESPERO A QUE ME INTERRUMPA PUERTO B ASI PUEDO IR A LEER TECLADO
+		BTFSC	DOMOTICA_STATUS, DOM_TECLADO		;ESPERO A QUE ME INTERRUMPA PUERTO B ASI PUEDO IR A LEER TECLADO
 		CALL	TECLADO
 
-		BTFSC	DOMOTICA_STATUS,DOM_DESBLOQUEADO
+		BTFSC	DOMOTICA_STATUS, DOM_DESBLOQUEADO
 		CALL	DESBLOQUEAR
+
+		BTFSC	DOMOTICA_STATUS, DOM_LUZ_ALTA
+		CALL	PRENDER_LUZ
+
+		BTFSS 	DOMOTICA_STATUS, DOM_LUZ_ALTA
+		CALL	APAGAR_LUZ
+
+
 
 		GOTO	BUCLE
 
@@ -121,10 +148,18 @@ BUCLE
 INTERRUPCION
 		SAVE_CONTEXT 
     ;---------------------------------------------------
-    ;Identificaci y asignacin de la prioridad de la interrupcin	
+    ;Identificaci y asignacin de la prioridad de la interrupcin
+    	BANKSEL	PIR1
 		BTFSC	INTCON,RBIF
-		GOTO	R_PORTB	
+		GOTO	R_PORTB
+
+		BTFSC	PIR1,ADIF
+		GOTO 	ADC_INT
+
+		BTFSC	INTCON,T0IF
 		GOTO	INT_T0
+
+		GOTO FININT
     ;---------------------------------------------------
     ; Rutina de TECLADO
 TECLADO
@@ -156,9 +191,9 @@ L3
 		MOVLW	B'11110000'
 		ANDWF	PORTB,F
 		BCF	DOMOTICA_STATUS,DOM_TECLADO
-		MOVF 	0x34, F
 		
 		; ------------ Seteo DOM_ESPERANDO_INPUT -----------------
+		MOVF 	0x34, F
 		BTFSS	STATUS,Z			; Si el ultimo bufer es 0x00
 		GOTO	VALIDAR_CODIGO		; Valida el codigo y pone DOM_ESPERANDO_INPUT = false				
 		
@@ -340,19 +375,43 @@ R_PORTB
 		GOTO	FININT
 FININT_TMR0
 	CARGAR_TIMER
+	BSF		ADCON0,GO	; Comienzo la primer conversión
 	BCF			INTCON,T0IF
 	GOTO		FININT
 
+ADC_INT
+		BTFSC 	ADRESH, 0x01 ; Me fijo el bit más significativo
+		GOTO 	SET_LUZ_BAJA
+		GOTO	SET_LUZ_ALTA
+
+
+SET_LUZ_BAJA
+		BCF		DOMOTICA_STATUS, DOM_LUZ_ALTA
+		GOTO 	FININTADC
+SET_LUZ_ALTA
+		BSF		DOMOTICA_STATUS, DOM_LUZ_ALTA
+		GOTO 	FININTADC
+
+
+FININTADC
+		BANKSEL	ADRESH
+		BCF		PIR1,ADIF			; Limpio la bandera de int por ADC
+		GOTO 	FININT
 
 
 DESBLOQUEAR
-	MOVLW		0x40 ; '-' en display
-	MOVWF		0x31
-	MOVWF		0x32
-	MOVWF		0x33
-	MOVWF		0x34
-    RETURN
-
+		MOVLW		0x40 ; '-' en display
+		MOVWF		0x31
+		MOVWF		0x32
+		MOVWF		0x33
+		MOVWF		0x34
+	    RETURN
+PRENDER_LUZ
+		BSF 	PORTD, 0x0
+		RETURN
+APAGAR_LUZ
+		BCF 	PORTD, 0x0
+		RETURN
 
     END
 

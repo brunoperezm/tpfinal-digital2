@@ -1,0 +1,5 @@
+build./*[D/*
+dist/*
+nbproject/*
+build/*
+Makefile

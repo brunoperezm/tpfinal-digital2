@@ -11,7 +11,7 @@ BOUNCE_COUNTER
 FLAG				
 W_TEMP
 STATUS_TEMP
-DEBO_CHEQUEAR_TECLADO	;INDICA SI VIENE UNA INT DEL PUERTOB
+DOMOTICA_STATUS	  ; Registro de Estado del proyecyo
 CONT1
 CONT2
 CONT3
@@ -25,6 +25,9 @@ ENDC
 ;----------------------------------------------------
 SCAN_OK			EQU 0x1
 SCAN_FAIL		EQU 0x0
+; ---- DOMOTICA_STATUS Bits
+DOM_TECLADO		EQU 0x0
+DOM_DESBLOQUEADO		EQU 0x1
 ;----------------------------------------------------
 ; 					MACROS
 ;----------------------------------------------------
@@ -94,12 +97,19 @@ INICIO
 		MOVWF	DIGI1
 		MOVLW	B'00000001'
 		MOVWF	PORTC	   		;HABILITO EL PRIMER DISPLAY
-		BCF	DEBO_CHEQUEAR_TECLADO,0
+		;  Inicializacion de DOMOTICA_STATUS constantes
+		BCF	DOMOTICA_STATUS,DOM_TECLADO
+		BCF	DOMOTICA_STATUS,DOM_DESBLOQUEADO
 ;------------------------------------------------------------------------------		
 		CLRF	PORTA
 		CARGAR_TIMER
-BUCLE		BTFSC	DEBO_CHEQUEAR_TECLADO,0		;ESPERO A QUE ME INTERRUMPA PUERTO B ASI PUEDO IR A LEER TECLADO
+BUCLE		
+		BTFSC	DOMOTICA_STATUS,DOM_TECLADO		;ESPERO A QUE ME INTERRUMPA PUERTO B ASI PUEDO IR A LEER TECLADO
 		CALL	TECLADO
+
+		BTFSC	DOMOTICA_STATUS,DOM_DESBLOQUEADO
+		CALL	DESBLOQUEAR
+
 		GOTO	BUCLE
 
 		
@@ -116,6 +126,7 @@ INTERRUPCION
     ;---------------------------------------------------
     ; Rutina de TECLADO
 TECLADO
+		BSF		DOMOTICA_STATUS, DOM_DESBLOQUEADO
 		MOVLW	D'50'			; aca verifica que la tecla efectivamente este presionada
 		MOVWF	BOUNCE_COUNTER	; verfico que 50 veces haya sido presionada
 L1
@@ -141,9 +152,9 @@ L3
 		GOTO	L2
 		DECFSZ	BOUNCE_COUNTER,F
 		GOTO	L3
-	        MOVLW	B'11110000'
+		MOVLW	B'11110000'
 		ANDWF	PORTB,F
-		BCF	DEBO_CHEQUEAR_TECLADO,0
+		BCF	DOMOTICA_STATUS,DOM_TECLADO
 		BCF	INTCON,RBIF		; Borra el flag que pidi la Interrupcin
 		BSF	INTCON,RBIE		; Al finalizar activo interrupcion por PORTB
 		RETURN
@@ -205,6 +216,7 @@ CONV_7SEG
 		RETLW	    0x5E 		; obtiene el valor 7 segmentos del D
 		RETLW	    0x79 		; obtiene el valor 7 segmentos del E
 		RETLW	    0x71 		; obtiene el valor 7 segmentos del F
+		RETLW	    0x01 		; obtiene el valor 7 segmentos del -
 	
 GUARDARENBUFFER
 	    MOVLW	0x31			; | 
@@ -263,7 +275,7 @@ MOSTRAR
 R_PORTB		
 		MOVLW	B'11110000'
 		ANDWF	PORTB,F
-		BSF	DEBO_CHEQUEAR_TECLADO,0
+		BSF	DOMOTICA_STATUS,DOM_TECLADO
 		BCF	INTCON,RBIE				; Desahabilito interrupciones 
 		BCF	INTCON,RBIF				; por puerto B
 		GOTO	FININT
@@ -272,7 +284,18 @@ FININT_TMR0
 	BCF			INTCON,T0IF
 	GOTO		FININT
 
-		
+
+
+DESBLOQUEAR
+	MOVLW		0x10
+	CALL		CONV_7SEG
+	MOVWF		0x31
+	MOVWF		0x32
+	MOVWF		0x33
+	MOVWF		0x34
+    RETURN
+
+
     END
 
 

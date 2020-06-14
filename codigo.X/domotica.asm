@@ -43,6 +43,7 @@ RESTORE_CONTEXT MACRO
 ENDM    
 
 CARGAR_TIMER MACRO
+	BANKSEL TMR0
     MOVLW	0x64
     MOVWF	TMR0 			; Se carga el valor deseado en el TMR0
     NOP                  	; T[s]= ((256-TMR0)*prescaler+2)*Ty 
@@ -98,7 +99,7 @@ INICIO
 		CLRF	PORTA
 		CARGAR_TIMER
 BUCLE		BTFSC	DEBO_CHEQUEAR_TECLADO,0		;ESPERO A QUE ME INTERRUMPA PUERTO B ASI PUEDO IR A LEER TECLADO
-		GOTO	TECLADO
+		CALL	TECLADO
 		GOTO	BUCLE
 
 		
@@ -115,7 +116,7 @@ INTERRUPCION
     ;---------------------------------------------------
     ; Rutina de TECLADO
 TECLADO
-        MOVLW	D'50'			; aca verifica que la tecla efectivamente este presionada
+		MOVLW	D'50'			; aca verifica que la tecla efectivamente este presionada
 		MOVWF	BOUNCE_COUNTER	; verfico que 50 veces haya sido presionada
 L1
 		CALL	SCAN_AND_LOAD_NUMTECLA 			;subrutina que retorna condicin de la tecla y el nmero de tecla presionada
@@ -145,7 +146,7 @@ L3
 		BCF	DEBO_CHEQUEAR_TECLADO,0
 		BCF	INTCON,RBIF		; Borra el flag que pidi la Interrupcin
 		BSF	INTCON,RBIE		; Al finalizar activo interrupcion por PORTB
-		GOTO	BUCLE
+		RETURN
 ;---------------------------------------------------
 ;Recuperacin del contexto    
 FININT    
@@ -257,8 +258,7 @@ MOSTRAR
 		MOVWF	PORTA	    		;EN EL DISPLAY
 		MOVF	FSR_AUX,W
 		MOVWF	FSR
-		BCF	INTCON,2
-		GOTO	FININT
+		GOTO	FININT_TMR0
 		
 R_PORTB		
 		MOVLW	B'11110000'
@@ -267,7 +267,10 @@ R_PORTB
 		BCF	INTCON,RBIE				; Desahabilito interrupciones 
 		BCF	INTCON,RBIF				; por puerto B
 		GOTO	FININT
-
+FININT_TMR0
+	CARGAR_TIMER
+	BCF			INTCON,T0IF
+	GOTO		FININT
 
 		
     END

@@ -5,13 +5,13 @@
 
 ;---------------------VARIABLES A UTILIZAR-------------------------------
 CBLOCK	0x20
-NUMTECLA	
-CTRLFILA	
-CONTA		   		
+NUMTECLA	; Acá guardo el numero de tecla presionado
+CTRLFILA	; Var aux para testear c/ fila del teclado
+BOUNCE_COUNTER		   		
 FLAG				
 W_TEMP
 STATUS_TEMP
-BANDERA1	;INDICA SI VIENE DEL PUERTOB
+DEBO_CHEQUEAR_TECLADO	;INDICA SI VIENE UNA INT DEL PUERTOB
 CONT1
 CONT2
 CONT3
@@ -20,16 +20,22 @@ AUXILIAR
 FSR_AUX
 DIGI1
 ENDC
-
-;------------------------MACROS------------------------------------------
+;----------------------------------------------------
+; 					CONSTANTES
+;----------------------------------------------------
+SCAN_OK			EQU 0x1
+SCAN_FAIL		EQU 0x0
+;----------------------------------------------------
+; 					MACROS
+;----------------------------------------------------
 		
-GUARDA_CONTEXTO MACRO
+SAVE_CONTEXT MACRO
     MOVWF   W_TEMP; Guarda valor del registro W
     SWAPF   STATUS,W; Guarda valor del registro STATUS
     MOVWF   STATUS_TEMP
 ENDM
 
-DEVUELVE_CONTEXTO MACRO
+RESTORE_CONTEXT MACRO
     SWAPF   STATUS_TEMP,W
     MOVWF   STATUS; a STATUS se le da su contenido original
     SWAPF   W_TEMP,F; a W se le da su contenido original
@@ -38,10 +44,10 @@ ENDM
 
 CARGAR_TIMER MACRO
     MOVLW	0x64
-    MOVWF	TMR0 ; Se carga el valor deseado en el TMR0
-    NOP                  ; T[s]= ((256-TMR0)*prescaler+2)*Ty 
-    NOP
-    BSF	    INTCON,T0IE ; Interrupci?n por desbordamiento TM0 habilitado
+    MOVWF	TMR0 			; Se carga el valor deseado en el TMR0
+    NOP                  	; T[s]= ((256-TMR0)*prescaler+2)*Ty 
+    NOP 				 	; Preescaler = 1:32
+    BSF	    INTCON,T0IE 	; Interrupci?n por desbordamiento TM0 habilitado
 ENDM
 
 
@@ -52,7 +58,10 @@ ENDM
 		ORG	0x04
 		GOTO	INTERRUPCION
 		ORG	0x05
-INICIO		;--------------------------------------------
+INICIO
+		;--------------------------------------------
+		;	    BORRO LOS BUFFER para el DISPLAY
+		;--------------------------------------------
 		CLRF	0x31
 		CLRF	0x32
 		CLRF	0x33
@@ -84,11 +93,11 @@ INICIO		;--------------------------------------------
 		MOVWF	DIGI1
 		MOVLW	B'00000001'
 		MOVWF	PORTC	   		;HABILITO EL PRIMER DISPLAY
-		BCF	BANDERA1,0
+		BCF	DEBO_CHEQUEAR_TECLADO,0
 ;------------------------------------------------------------------------------		
 		CLRF	PORTA
 		CARGAR_TIMER
-BUCLE		BTFSC	BANDERA1,0		;ESPERO A QUE ME INTERRUMPA PUERTO B ASI PUEDO IR A LEER TECLADO
+BUCLE		BTFSC	DEBO_CHEQUEAR_TECLADO,0		;ESPERO A QUE ME INTERRUMPA PUERTO B ASI PUEDO IR A LEER TECLADO
 		GOTO	TECLADO
 		GOTO	BUCLE
 
@@ -97,7 +106,7 @@ BUCLE		BTFSC	BANDERA1,0		;ESPERO A QUE ME INTERRUMPA PUERTO B ASI PUEDO IR A LEE
 		
 		
 INTERRUPCION
-		GUARDA_CONTEXTO 
+		SAVE_CONTEXT 
     ;---------------------------------------------------
     ;Identificaci y asignacin de la prioridad de la interrupcin	
 		BTFSC	INTCON,RBIF
@@ -106,14 +115,14 @@ INTERRUPCION
     ;---------------------------------------------------
     ; Rutina de TECLADO
 TECLADO
-	        MOVLW	D'50'			;aca verifica que la tecla efectivamente este presionada
-		MOVWF	CONTA
+        MOVLW	D'50'			; aca verifica que la tecla efectivamente este presionada
+		MOVWF	BOUNCE_COUNTER	; verfico que 50 veces haya sido presionada
 L1
-		CALL	SCAN 			;subrutina que retorna condicin de la tecla y el nmero de tecla presionada
+		CALL	SCAN_AND_LOAD_NUMTECLA 			;subrutina que retorna condicin de la tecla y el nmero de tecla presionada
 		MOVWF	FLAG
 		BTFSS	FLAG,0
 		GOTO	TECLADO
-		DECFSZ	CONTA,F
+		DECFSZ	BOUNCE_COUNTER,F
 		GOTO	L1
 
 		MOVF 	NUMTECLA,W  
@@ -123,28 +132,29 @@ L1
 		CLRF	PORTB  
 		
 L2		MOVLW	D'50'
-		MOVWF	CONTA
+		MOVWF	BOUNCE_COUNTER
 L3
-		CALL	SCAN			;Aca verifica que no se este presionando ninguna tecla, 50 veces
+		CALL	SCAN_AND_LOAD_NUMTECLA			;Aca verifica que no se este presionando ninguna tecla, 50 veces
 		MOVWF	FLAG
 		BTFSC	FLAG,0    
 		GOTO	L2
-		DECFSZ	CONTA,F
+		DECFSZ	BOUNCE_COUNTER,F
 		GOTO	L3
 	        MOVLW	B'11110000'
 		ANDWF	PORTB,F
-		BCF	BANDERA1,0
+		BCF	DEBO_CHEQUEAR_TECLADO,0
 		BCF	INTCON,RBIF		; Borra el flag que pidi la Interrupcin
-		BSF	INTCON,RBIE
+		BSF	INTCON,RBIE		; Al finalizar activo interrupcion por PORTB
 		GOTO	BUCLE
 ;---------------------------------------------------
 ;Recuperacin del contexto    
 FININT    
-		DEVUELVE_CONTEXTO
+		RESTORE_CONTEXT
 		RETFIE
 ;---------------------------------------------------
 		
-SCAN		CLRF	NUMTECLA     		 ; contador a cero
+SCAN_AND_LOAD_NUMTECLA	
+		CLRF	NUMTECLA     		 ; contador a cero
 		MOVLW	b'00001110'  		 ; valor para primera fila
 		MOVWF	CTRLFILA
 OTRATECLA
@@ -172,8 +182,9 @@ OTRATECLA
 		SUBWF	NUMTECLA,W		; averigo si ya testeo las 16 teclas
 		BTFSS	STATUS,Z				
 		GOTO	OTRATECLA		; no llego a 16, busca prxima fila
-		RETLW	0x00
-TEC_PRES	RETLW   0x01
+		RETLW	SCAN_FAIL
+TEC_PRES	
+		RETLW   SCAN_OK
 		
 CONV_7SEG	
 		ADDWF	    PCL,F		; suma a PC el valor del dígito
@@ -195,13 +206,14 @@ CONV_7SEG
 		RETLW	    0x71 		; obtiene el valor 7 segmentos del F
 	
 GUARDARENBUFFER
-	        MOVLW	0x31
-		MOVWF	CONT1
-		MOVLW	0x34
-		MOVWF	CONT3
-		MOVLW	0x33
-		MOVWF	CONT2
-LOOP		MOVF	CONT2,W
+	    MOVLW	0x31			; | 
+		MOVWF	CONT1			; | 
+		MOVLW	0x34			; |  => Guarda 
+		MOVWF	CONT3			; | 
+		MOVLW	0x33			; | 
+		MOVWF	CONT2			; | 
+LOOP		
+		MOVF	CONT2,W
 		MOVWF	FSR			;Apunto a la anteultima
 		MOVF	INDF,W	
 		MOVWF	AUX			;Guardo lo que habia ahi en aux
@@ -251,9 +263,9 @@ MOSTRAR
 R_PORTB		
 		MOVLW	B'11110000'
 		ANDWF	PORTB,F
-		BSF	BANDERA1,0
-		BCF	INTCON,RBIE
-		BCF	INTCON,RBIF
+		BSF	DEBO_CHEQUEAR_TECLADO,0
+		BCF	INTCON,RBIE				; Desahabilito interrupciones 
+		BCF	INTCON,RBIF				; por puerto B
 		GOTO	FININT
 
 

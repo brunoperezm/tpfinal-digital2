@@ -26,8 +26,9 @@ ENDC
 SCAN_OK			EQU 0x1
 SCAN_FAIL		EQU 0x0
 ; ---- DOMOTICA_STATUS Bits
-DOM_TECLADO		EQU 0x0
+DOM_TECLADO				EQU 0x0
 DOM_DESBLOQUEADO		EQU 0x1
+DOM_ESPERANDO_INPUT		EQU 0x2
 ;----------------------------------------------------
 ; 					MACROS
 ;----------------------------------------------------
@@ -100,6 +101,7 @@ INICIO
 		;  Inicializacion de DOMOTICA_STATUS constantes
 		BCF	DOMOTICA_STATUS,DOM_TECLADO
 		BCF	DOMOTICA_STATUS,DOM_DESBLOQUEADO
+		BSF DOMOTICA_STATUS, DOM_ESPERANDO_INPUT
 ;------------------------------------------------------------------------------		
 		CLRF	PORTA
 		CARGAR_TIMER
@@ -126,7 +128,6 @@ INTERRUPCION
     ;---------------------------------------------------
     ; Rutina de TECLADO
 TECLADO
-		BSF		DOMOTICA_STATUS, DOM_DESBLOQUEADO
 		MOVLW	D'50'			; aca verifica que la tecla efectivamente este presionada
 		MOVWF	BOUNCE_COUNTER	; verfico que 50 veces haya sido presionada
 L1
@@ -155,6 +156,10 @@ L3
 		MOVLW	B'11110000'
 		ANDWF	PORTB,F
 		BCF	DOMOTICA_STATUS,DOM_TECLADO
+		MOVF 	0x34, F
+		BTFSC	STATUS,Z								; Si el ultimo bufer es 0x00
+		BSF 	DOMOTICA_STATUS, DOM_ESPERANDO_INPUT	; DOM_ESPERANDO_INPUT es true
+		BCF		DOMOTICA_STATUS, DOM_ESPERANDO_INPUT	; DOM_ESPERANDO_INPUT es false
 		BCF	INTCON,RBIF		; Borra el flag que pidi la Interrupcin
 		BSF	INTCON,RBIE		; Al finalizar activo interrupcion por PORTB
 		RETURN
@@ -275,9 +280,9 @@ MOSTRAR
 R_PORTB		
 		MOVLW	B'11110000'
 		ANDWF	PORTB,F
-		BSF	DOMOTICA_STATUS,DOM_TECLADO
-		BCF	INTCON,RBIE				; Desahabilito interrupciones 
-		BCF	INTCON,RBIF				; por puerto B
+		BSF		DOMOTICA_STATUS,DOM_TECLADO
+		BCF		INTCON,RBIE				; Desahabilito interrupciones 
+		BCF		INTCON,RBIF				; por puerto B
 		GOTO	FININT
 FININT_TMR0
 	CARGAR_TIMER

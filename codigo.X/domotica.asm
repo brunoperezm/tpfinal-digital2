@@ -48,7 +48,7 @@ ENDM
 
 CARGAR_TIMER MACRO
 	BANKSEL TMR0
-    MOVLW	0x64
+    MOVLW	0x00			; Deberia ser 0x64 pero a efectos de simulacion va como 00
     MOVWF	TMR0 			; Se carga el valor deseado en el TMR0
     NOP                  	; T[s]= ((256-TMR0)*prescaler+2)*Ty 
     NOP 				 	; Preescaler = 1:32
@@ -87,7 +87,7 @@ INICIO
 		BCF	OPTION_REG,NOT_RBPU
 		MOVLW	B'11010000'  		; 1.- TMR0 sea controlado por el oscilador
 		ANDWF	OPTION_REG,W 		; 2.- El Prescaler sea asignado al temporizador TMR0
-		IORLW	B'00000100' 		; 3.- Se elige una divisi?n de frecuencia de 1:32
+		IORLW	B'00000111' 		; 3.- Se elige una divisi?n de frecuencia de 1:32 Deberia ser 00000100
 		MOVWF	OPTION_REG   		; Se carga la configuraci?n final.
 		BCF	STATUS,RP0
 		CLRF	PORTB			
